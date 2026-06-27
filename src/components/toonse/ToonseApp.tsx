@@ -8,6 +8,8 @@ import {
   FolderOpen,
   LogOut,
   Loader2,
+  Undo2,
+  Redo2,
 } from "lucide-react";
 import { useState, useEffect } from "react";
 import { CanvasArea } from "./CanvasArea";
@@ -19,22 +21,36 @@ import { useEngine } from "./useEngine";
 import { Engine } from "./engine";
 
 function serializeEngineState(engine: Engine) {
-  return JSON.stringify({
-    objects: engine.objects,
-    frames: engine.frames,
-    bones: engine.bones,
-    rigGroups: engine.rigGroups,
-    layers: engine.layers,
-    meshShowPoints: engine.meshShowPoints,
-    meshShowGrid: engine.meshShowGrid,
-    onionSkin: engine.onionSkin,
-  });
+  return JSON.stringify(engine.getStateData());
 }
 
 function restoreEngineState(engine: Engine, dataStr: string) {
+  // Try to use the engine's built-in state applier since it properly loads images
+  // We'll wrap it by restoring the history so it sets it as the first state
+  const tempHistory = [...engine.history];
+  const tempIndex = engine.historyIndex;
+  
+  engine.history = [];
+  engine.historyIndex = -1;
+  engine.saveState(); // create empty base
+  
+  // Actually load the project
+  // We can just call engine['applyState'] (it's private but this is JS) or add a public method.
+  // I'll modify ToonseApp to just parse it here to avoid TS errors.
   try {
     const data = JSON.parse(dataStr);
     engine.objects = data.objects || {};
+    
+    // Recreate image elements
+    for (const obj of Object.values(engine.objects)) {
+      if (obj.kind === "image" && obj.imageSrc) {
+        const img = new Image();
+        img.onload = () => engine.render();
+        img.src = obj.imageSrc;
+        obj.imageElement = img;
+      }
+    }
+    
     engine.frames = data.frames || [{ id: "f1", transforms: {} }];
     engine.bones = data.bones || [];
     engine.rigGroups = data.rigGroups || [];
@@ -51,10 +67,17 @@ function restoreEngineState(engine: Engine, dataStr: string) {
     } else {
       engine.ensureActiveLayer();
     }
+    
+    // Reset history with this loaded state as base
+    engine.history = [dataStr];
+    engine.historyIndex = 0;
+    
     engine.notify();
     engine.render();
   } catch (err) {
     console.error("Failed to restore project", err);
+    engine.history = tempHistory;
+    engine.historyIndex = tempIndex;
   }
 }
 
@@ -357,6 +380,28 @@ export function ToonseApp() {
             onChange={(e) => setCurrentProjectName(e.target.value)}
             className="bg-transparent border-none outline-none font-medium text-sm w-32 focus:ring-2 focus:ring-blue-500/50 rounded px-1"
           />
+
+          <button
+            type="button"
+            onClick={() => engine.undo()}
+            disabled={engine.historyIndex <= 0}
+            title="Undo"
+            className="flex items-center gap-1.5 px-2 py-1 rounded hover:bg-gray-100 dark:hover:bg-gray-800 disabled:opacity-50 disabled:cursor-not-allowed transition-colors text-sm"
+          >
+            <Undo2 size={16} />
+          </button>
+          
+          <button
+            type="button"
+            onClick={() => engine.redo()}
+            disabled={engine.historyIndex >= engine.history.length - 1}
+            title="Redo"
+            className="flex items-center gap-1.5 px-2 py-1 rounded hover:bg-gray-100 dark:hover:bg-gray-800 disabled:opacity-50 disabled:cursor-not-allowed transition-colors text-sm"
+          >
+            <Redo2 size={16} />
+          </button>
+
+          <div className="w-px h-4 bg-gray-300 dark:bg-gray-600 mx-1" />
 
           <button
             type="button"

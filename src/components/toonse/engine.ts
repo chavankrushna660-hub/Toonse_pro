@@ -52,6 +52,130 @@ function matrixToTransform(m: DOMMatrix): Transform {
   };
 }
 
+function computeMLS(v: Point, originalPins: Point[], deformedPins: Point[]): Point {
+  if (originalPins.length === 0) return { ...v };
+  if (originalPins.length === 1) {
+    return {
+      x: v.x - originalPins[0].x + deformedPins[0].x,
+      y: v.y - originalPins[0].y + deformedPins[0].y,
+    };
+  }
+
+  let wSum = 0;
+  let pStarX = 0,
+    pStarY = 0;
+  let qStarX = 0,
+    qStarY = 0;
+
+  const weights: number[] = [];
+  for (let i = 0; i < originalPins.length; i++) {
+    const p = originalPins[i];
+    const dx = p.x - v.x;
+    const dy = p.y - v.y;
+    const d2 = dx * dx + dy * dy;
+    if (d2 < 1e-6) return { ...deformedPins[i] };
+
+    // MLS uses 1/d^(2 * alpha). alpha=1 is typical.
+    const w = 1 / d2;
+    weights.push(w);
+    wSum += w;
+    pStarX += p.x * w;
+    pStarY += p.y * w;
+    qStarX += deformedPins[i].x * w;
+    qStarY += deformedPins[i].y * w;
+  }
+
+  pStarX /= wSum;
+  pStarY /= wSum;
+  qStarX /= wSum;
+  qStarY /= wSum;
+
+  let a11 = 0,
+    a12 = 0,
+    a22 = 0;
+  let b11 = 0,
+    b12 = 0,
+    b21 = 0,
+    b22 = 0;
+
+  for (let i = 0; i < originalPins.length; i++) {
+    const w = weights[i];
+    const px = originalPins[i].x - pStarX;
+    const py = originalPins[i].y - pStarY;
+    const qx = deformedPins[i].x - qStarX;
+    const qy = deformedPins[i].y - qStarY;
+
+    a11 += w * px * px;
+    a12 += w * px * py;
+    a22 += w * py * py;
+
+    b11 += w * px * qx;
+    b12 += w * px * qy;
+    b21 += w * py * qx;
+    b22 += w * py * qy;
+  }
+
+  const detA = a11 * a22 - a12 * a12;
+  if (Math.abs(detA) < 1e-6) {
+    // Fallback to translation if points are collinear/degenerate
+    return {
+      x: v.x - pStarX + qStarX,
+      y: v.y - pStarY + qStarY,
+    };
+  }
+
+  const invA11 = a22 / detA;
+  const invA12 = -a12 / detA;
+  const invA22 = a11 / detA;
+
+  const m11 = invA11 * b11 + invA12 * b21;
+  const m12 = invA11 * b12 + invA12 * b22;
+  const m21 = invA12 * b11 + invA22 * b21;
+  const m22 = invA12 * b12 + invA22 * b22;
+
+  const vx = v.x - pStarX;
+  const vy = v.y - pStarY;
+
+  return {
+    x: vx * m11 + vy * m21 + qStarX,
+    y: vx * m12 + vy * m22 + qStarY,
+  };
+}
+
+function drawTexturedTriangle(
+  ctx: CanvasRenderingContext2D,
+  img: HTMLImageElement,
+  p0: Point,
+  p1: Point,
+  p2: Point,
+  t0: Point,
+  t1: Point,
+  t2: Point,
+) {
+  const det = t0.x * (t1.y - t2.y) - t1.x * (t0.y - t2.y) + t2.x * (t0.y - t1.y);
+  if (Math.abs(det) < 1e-6) return;
+
+  const a = ((p0.x - p2.x) * (t1.y - t2.y) - (p1.x - p2.x) * (t0.y - t2.y)) / det;
+  const c = ((p1.x - p2.x) * (t0.x - t2.x) - (p0.x - p2.x) * (t1.x - t2.x)) / det;
+  const e = p0.x - a * t0.x - c * t0.y;
+
+  const b = ((p0.y - p2.y) * (t1.y - t2.y) - (p1.y - p2.y) * (t0.y - t2.y)) / det;
+  const d = ((p1.y - p2.y) * (t0.x - t2.x) - (p0.y - p2.y) * (t1.x - t2.x)) / det;
+  const f = p0.y - b * t0.x - d * t0.y;
+
+  ctx.save();
+  ctx.beginPath();
+  ctx.moveTo(p0.x, p0.y);
+  ctx.lineTo(p1.x, p1.y);
+  ctx.lineTo(p2.x, p2.y);
+  ctx.closePath();
+  ctx.clip();
+  ctx.transform(a, b, c, d, e, f);
+  // Pad the source image draw slightly to avoid seams
+  ctx.drawImage(img, 0, 0);
+  ctx.restore();
+}
+
 function boundsOf(points: Point[]) {
   if (!points.length)
     return { minX: -1, minY: -1, maxX: 1, maxY: 1, width: 2, height: 2, cx: 0, cy: 0 };
@@ -116,6 +240,86 @@ export class Engine {
   boneColor = "#2196f3";
   boneThickness = 4;
   autoGroupBones = true;
+
+  history: string[] = [];
+  historyIndex = -1;
+
+  getStateData() {
+    return {
+      objects: this.objects,
+      frames: this.frames,
+      bones: this.bones,
+      rigGroups: this.rigGroups,
+      layers: this.layers,
+      meshShowPoints: this.meshShowPoints,
+      meshShowGrid: this.meshShowGrid,
+      onionSkin: this.onionSkin,
+    };
+  }
+
+  saveState() {
+    // Truncate future history if we made a new action after an undo
+    if (this.historyIndex < this.history.length - 1) {
+      this.history = this.history.slice(0, this.historyIndex + 1);
+    }
+    const stateStr = JSON.stringify(this.getStateData());
+
+    // Only save if different from last state
+    if (this.history.length === 0 || this.history[this.history.length - 1] !== stateStr) {
+      this.history.push(stateStr);
+      if (this.history.length > 20) {
+        this.history.shift(); // Keep max 20 states
+      }
+      this.historyIndex = this.history.length - 1;
+    }
+  }
+
+  undo() {
+    if (this.historyIndex > 0) {
+      this.historyIndex--;
+      this.applyState(this.history[this.historyIndex]);
+      this.notify();
+      this.render();
+    }
+  }
+
+  redo() {
+    if (this.historyIndex < this.history.length - 1) {
+      this.historyIndex++;
+      this.applyState(this.history[this.historyIndex]);
+      this.notify();
+      this.render();
+    }
+  }
+
+  private applyState(stateStr: string) {
+    try {
+      const data = JSON.parse(stateStr);
+      this.objects = data.objects || {};
+      for (const obj of Object.values(this.objects)) {
+        if (obj.kind === "image" && obj.imageSrc) {
+          const img = new Image();
+          img.onload = () => this.render();
+          img.src = obj.imageSrc;
+          obj.imageElement = img;
+        }
+      }
+      this.frames = data.frames || [{ id: "f1", transforms: {} }];
+      this.bones = data.bones || [];
+      this.rigGroups = data.rigGroups || [];
+      this.layers = data.layers || [];
+      this.meshShowPoints = data.meshShowPoints ?? false;
+      this.meshShowGrid = data.meshShowGrid ?? false;
+      this.onionSkin = data.onionSkin ?? false;
+      if (this.layers.length > 0) {
+        this.activeLayerId = this.layers[this.layers.length - 1].id;
+      } else {
+        this.ensureActiveLayer();
+      }
+    } catch (e) {
+      console.error(e);
+    }
+  }
   defaultAllowDetach = false;
 
   listeners = new Set<() => void>();
@@ -124,7 +328,16 @@ export class Engine {
   isDrawing = false;
   currentStroke: Point[] = [];
   pointerId: number | null = null;
-  dragAction: HandleName | "move" | "draw" | "erase" | "deform" | "curve" | "bone" | null = null;
+  dragAction:
+    | HandleName
+    | "move"
+    | "draw"
+    | "erase"
+    | "deform"
+    | "curve"
+    | "bone"
+    | "puppet"
+    | null = null;
   dragStartPt: Point | null = null;
   dragStartLocal: Point | null = null;
   initialTransform: Transform | null = null;
@@ -892,7 +1105,12 @@ export class Engine {
       // Multi-touch UI controls can still receive their own pointer streams.
     }
 
-    if (this.tool === "brush" || this.tool === "pen" || this.tool === "texture") {
+    if (
+      this.tool === "brush" ||
+      this.tool === "pen" ||
+      this.tool === "texture" ||
+      this.tool === "knife"
+    ) {
       this.dragAction = "draw";
       this.currentStroke = [pt];
       this.render();
@@ -920,6 +1138,62 @@ export class Engine {
         this.notify();
         this.render();
       }
+      return;
+    }
+
+    if (this.tool === "puppet") {
+      let clickedPinId = null;
+      let targetObjId = this.selectedId;
+
+      if (targetObjId) {
+        const obj = this.objects[targetObjId];
+        if (obj && obj.pins) {
+          for (const pin of obj.pins) {
+            const ptForm = this.getFrameTransform(pin.id);
+            const screen = this.localToScreen(targetObjId, {
+              x: pin.x + ptForm.x,
+              y: pin.y + ptForm.y,
+            });
+            if (screen && dist(screen, pt) < 15) {
+              clickedPinId = pin.id;
+              break;
+            }
+          }
+        }
+      }
+
+      if (!clickedPinId) {
+        // Find clicked object
+        const hitId = this.hitTestTop(pt);
+        if (hitId) {
+          targetObjId = hitId;
+          this.selectedId = hitId;
+          const obj = this.objects[hitId];
+          if (obj.kind === "image") {
+            if (!obj.pins) obj.pins = [];
+            const local = this.screenToLocal(hitId, pt);
+            if (local) {
+              const newPinId = `${hitId}_pin_${obj.pins.length}`;
+              obj.pins.push({ id: newPinId, x: local.x, y: local.y });
+              this.getFrameTransform(newPinId).x = 0;
+              this.getFrameTransform(newPinId).y = 0;
+              clickedPinId = newPinId;
+            }
+          }
+        }
+      }
+
+      if (clickedPinId && targetObjId) {
+        this.selectedId = targetObjId;
+        this.dragAction = "puppet";
+        this.meshActivePointId = clickedPinId; // reuse this variable to track the pin
+        this.dragStartLocal = this.screenToLocal(targetObjId, pt);
+        const ptForm = this.getFrameTransform(clickedPinId);
+        this.initialTransform = { ...ptForm }; // store initial offset
+      }
+
+      this.notify();
+      this.render();
       return;
     }
 
@@ -989,7 +1263,10 @@ export class Engine {
 
     if (
       this.dragAction === "draw" &&
-      (this.tool === "brush" || this.tool === "pen" || this.tool === "texture")
+      (this.tool === "brush" ||
+        this.tool === "pen" ||
+        this.tool === "texture" ||
+        this.tool === "knife")
     ) {
       const last = this.currentStroke[this.currentStroke.length - 1];
       if (!last || dist(last, pt) > (this.tool === "pen" ? 2 : 1.2)) this.currentStroke.push(pt);
@@ -1009,6 +1286,25 @@ export class Engine {
 
     if (this.dragAction === "bone") {
       this.render();
+      return;
+    }
+
+    if (
+      this.dragAction === "puppet" &&
+      this.selectedId &&
+      this.meshActivePointId &&
+      this.dragStartLocal &&
+      this.initialTransform
+    ) {
+      const local = this.screenToLocal(this.selectedId, pt);
+      if (local) {
+        const dx = local.x - this.dragStartLocal.x;
+        const dy = local.y - this.dragStartLocal.y;
+        const t = this.getFrameTransform(this.meshActivePointId);
+        t.x = this.initialTransform.x + dx;
+        t.y = this.initialTransform.y + dy;
+        this.render();
+      }
       return;
     }
 
@@ -1075,9 +1371,16 @@ export class Engine {
 
     if (
       this.dragAction === "draw" &&
-      (this.tool === "brush" || this.tool === "pen" || this.tool === "texture")
+      (this.tool === "brush" ||
+        this.tool === "pen" ||
+        this.tool === "texture" ||
+        this.tool === "knife")
     ) {
-      this.finishStroke();
+      if (this.tool === "knife") {
+        this.performKnifeCut();
+      } else {
+        this.finishStroke();
+      }
     }
 
     if (this.dragAction === "bone" && this.pendingBone) {
@@ -1102,6 +1405,8 @@ export class Engine {
       this.pendingBone = null;
     }
 
+    const wasAction = !!this.dragAction;
+
     this.isDrawing = false;
     this.pointerId = null;
     this.dragAction = null;
@@ -1116,6 +1421,11 @@ export class Engine {
     this.curveStartLocal = null;
     this.meshActivePointId = null;
     this.autoFrameCreatedForGesture = false;
+
+    if (wasAction) {
+      this.saveState();
+    }
+
     this.notify();
     this.render();
   }
@@ -1286,6 +1596,153 @@ export class Engine {
     for (const frame of this.frames)
       frame.transforms[id] = defaultTransform(this.cssWidth / 2, this.cssHeight / 2);
     this.selectedId = id;
+    this.notify();
+    this.render();
+  }
+
+  async performKnifeCut() {
+    const raw = this.currentStroke;
+    this.currentStroke = [];
+    if (raw.length < 3) {
+      this.render();
+      return;
+    }
+
+    const targetId = this.selectedId;
+    if (!targetId) {
+      this.render();
+      return;
+    }
+
+    const obj = this.objects[targetId];
+    if (!obj || obj.kind !== "image" || !obj.imageElement) {
+      this.render();
+      return;
+    }
+
+    const inv = this.getEffectiveMatrix(targetId, this.currentFrameIdx).inverse();
+    const localPoly = raw.map((p) => {
+      const pt = new DOMPoint(p.x, p.y).matrixTransform(inv);
+      return { x: pt.x, y: pt.y };
+    });
+
+    let finalPoly = [...localPoly];
+    const isClosed = dist(localPoly[0], localPoly[localPoly.length - 1]) < 50;
+
+    if (!isClosed) {
+      const p0 = localPoly[0];
+      const p1 = localPoly[1];
+      const pn = localPoly[localPoly.length - 1];
+      const pn_1 = localPoly[localPoly.length - 2];
+
+      const dir0 = { x: p0.x - p1.x, y: p0.y - p1.y };
+      const len0 = Math.hypot(dir0.x, dir0.y) || 1;
+      const ext0 = { x: p0.x + (dir0.x / len0) * 10000, y: p0.y + (dir0.y / len0) * 10000 };
+
+      const dirn = { x: pn.x - pn_1.x, y: pn.y - pn_1.y };
+      const lenn = Math.hypot(dirn.x, dirn.y) || 1;
+      const extn = { x: pn.x + (dirn.x / lenn) * 10000, y: pn.y + (dirn.y / lenn) * 10000 };
+
+      const d = { x: pn.x - p0.x, y: pn.y - p0.y };
+      const n = { x: -d.y, y: d.x };
+      const nLen = Math.hypot(n.x, n.y) || 1;
+      const nUnit = { x: (n.x / nLen) * 10000, y: (n.y / nLen) * 10000 };
+
+      finalPoly = [
+        ext0,
+        ...localPoly,
+        extn,
+        { x: extn.x + nUnit.x, y: extn.y + nUnit.y },
+        { x: ext0.x + nUnit.x, y: ext0.y + nUnit.y },
+      ];
+    }
+
+    const b = this.getLocalBounds(obj);
+    if (b.width <= 0 || b.height <= 0) {
+      this.render();
+      return;
+    }
+
+    const canvas1 = document.createElement("canvas");
+    const canvas2 = document.createElement("canvas");
+    canvas1.width = b.width;
+    canvas1.height = b.height;
+    canvas2.width = b.width;
+    canvas2.height = b.height;
+
+    const ctx1 = canvas1.getContext("2d");
+    const ctx2 = canvas2.getContext("2d");
+    if (!ctx1 || !ctx2) return;
+
+    ctx1.drawImage(obj.imageElement, 0, 0, b.width, b.height);
+    ctx2.drawImage(obj.imageElement, 0, 0, b.width, b.height);
+
+    for (const ctx of [ctx1, ctx2]) {
+      ctx.save();
+      ctx.translate(-b.minX, -b.minY);
+      ctx.beginPath();
+      finalPoly.forEach((p, i) => {
+        if (i === 0) ctx.moveTo(p.x, p.y);
+        else ctx.lineTo(p.x, p.y);
+      });
+      ctx.closePath();
+      ctx.restore();
+    }
+
+    ctx1.globalCompositeOperation = "destination-in";
+    ctx1.fill();
+
+    ctx2.globalCompositeOperation = "destination-out";
+    ctx2.fill();
+
+    const img1 = new Image();
+    const img2 = new Image();
+
+    await Promise.all([
+      new Promise((r) => {
+        img1.onload = r;
+        img1.src = canvas1.toDataURL("image/png");
+      }),
+      new Promise((r) => {
+        img2.onload = r;
+        img2.src = canvas2.toDataURL("image/png");
+      }),
+    ]);
+
+    this.ensureActiveLayer();
+
+    let partsCount = 1;
+    for (const k of Object.keys(this.objects)) {
+      if (this.objects[k].name.startsWith(`${obj.name} Part`)) {
+        partsCount++;
+      }
+    }
+
+    const createCutPart = (img: HTMLImageElement, nameSuffix: string, src: string) => {
+      const id = genId();
+      this.objects[id] = {
+        ...obj,
+        id,
+        name: `${obj.name} ${nameSuffix}`,
+        imageElement: img,
+        imageSrc: src,
+        zIndex: this.nextZIndex(),
+      };
+      for (const frame of this.frames) {
+        if (frame.transforms[obj.id]) {
+          frame.transforms[id] = { ...frame.transforms[obj.id] };
+        }
+      }
+      return id;
+    };
+
+    const id1 = createCutPart(img1, `Part ${partsCount}`, canvas1.toDataURL("image/png"));
+    createCutPart(img2, `Part ${partsCount + 1}`, canvas2.toDataURL("image/png"));
+
+    this.deleteObject(obj.id);
+    this.selectedId = id1;
+
+    this.saveState();
     this.notify();
     this.render();
   }
@@ -1496,7 +1953,25 @@ export class Engine {
 
   getFrameTransform(id: string, frameIdx = this.currentFrameIdx): Transform {
     const frame = this.frames[frameIdx];
-    if (!frame.transforms[id]) frame.transforms[id] = defaultTransform();
+    if (!frame.transforms[id]) {
+      // Find transform in a previous frame to persist state across frames
+      let prevTransform = null;
+      for (let i = frameIdx - 1; i >= 0; i--) {
+        if (this.frames[i].transforms[id]) {
+          prevTransform = this.frames[i].transforms[id];
+          break;
+        }
+      }
+      if (!prevTransform) {
+        for (let i = frameIdx + 1; i < this.frames.length; i++) {
+          if (this.frames[i].transforms[id]) {
+            prevTransform = this.frames[i].transforms[id];
+            break;
+          }
+        }
+      }
+      frame.transforms[id] = prevTransform ? { ...prevTransform } : defaultTransform();
+    }
     return frame.transforms[id];
   }
 
@@ -1586,8 +2061,67 @@ export class Engine {
     ctx.transform(matrix.a, matrix.b, matrix.c, matrix.d, matrix.e, matrix.f);
 
     if (obj.kind === "image" && obj.imageElement) {
-      const b = this.getLocalBounds(obj);
-      ctx.drawImage(obj.imageElement, b.minX, b.minY, b.width, b.height);
+      if (obj.pins && obj.pins.length > 0) {
+        const originalPins = obj.pins.map((p) => ({ x: p.x, y: p.y }));
+        const deformedPins = obj.pins.map((p) => {
+          const pt = this.getFrameTransform(p.id, frameIdx);
+          return { x: p.x + pt.x, y: p.y + pt.y };
+        });
+
+        const b = this.getLocalBounds(obj);
+        const stepsX = 12;
+        const stepsY = 12;
+        const cellW = b.width / stepsX;
+        const cellH = b.height / stepsY;
+
+        for (let y = 0; y < stepsY; y++) {
+          for (let x = 0; x < stepsX; x++) {
+            const ox0 = b.minX + x * cellW;
+            const oy0 = b.minY + y * cellH;
+            const ox1 = ox0 + cellW;
+            const oy1 = oy0 + cellH;
+
+            const p00 = { x: ox0, y: oy0 };
+            const p10 = { x: ox1, y: oy0 };
+            const p01 = { x: ox0, y: oy1 };
+            const p11 = { x: ox1, y: oy1 };
+
+            const dp00 = computeMLS(p00, originalPins, deformedPins);
+            const dp10 = computeMLS(p10, originalPins, deformedPins);
+            const dp01 = computeMLS(p01, originalPins, deformedPins);
+            const dp11 = computeMLS(p11, originalPins, deformedPins);
+
+            const tx0 = x * cellW,
+              ty0 = y * cellH;
+            const tx1 = tx0 + cellW,
+              ty1 = ty0 + cellH;
+
+            drawTexturedTriangle(
+              ctx,
+              obj.imageElement,
+              dp00,
+              dp10,
+              dp01,
+              { x: tx0, y: ty0 },
+              { x: tx1, y: ty0 },
+              { x: tx0, y: ty1 },
+            );
+            drawTexturedTriangle(
+              ctx,
+              obj.imageElement,
+              dp11,
+              dp01,
+              dp10,
+              { x: tx1, y: ty1 },
+              { x: tx0, y: ty1 },
+              { x: tx1, y: ty0 },
+            );
+          }
+        }
+      } else {
+        const b = this.getLocalBounds(obj);
+        ctx.drawImage(obj.imageElement, b.minX, b.minY, b.width, b.height);
+      }
     } else {
       this.objectPath(ctx, obj, t);
       if (obj.fillColor) {
@@ -1627,6 +2161,7 @@ export class Engine {
     if (this.selectedGroupId) this.drawGroupSelection(this.selectedGroupId);
     if (this.selectedId) this.drawSelection(this.selectedId);
     if (this.tool === "deform" && this.selectedId) this.drawDeformPoints(this.selectedId);
+    if (this.tool === "puppet" && this.selectedId) this.drawPuppetPins(this.selectedId);
     if (this.pendingBoneConfirm) this.drawConfirmedPendingBone();
     if (this.pendingBone) this.drawPendingBone();
   }
@@ -1635,15 +2170,39 @@ export class Engine {
     if (!this.ctx || this.currentStroke.length < 1) return;
     const ctx = this.ctx;
     ctx.save();
-    ctx.strokeStyle = this.currentColor;
-    ctx.lineWidth = this.currentWidth;
-    ctx.lineCap = "round";
-    ctx.lineJoin = "round";
+
+    if (this.tool === "knife") {
+      ctx.strokeStyle = "#fff";
+      ctx.lineWidth = 2;
+      ctx.setLineDash([5, 5]);
+      ctx.lineCap = "butt";
+      ctx.lineJoin = "miter";
+    } else {
+      ctx.strokeStyle = this.currentColor;
+      ctx.lineWidth = this.currentWidth;
+      ctx.lineCap = "round";
+      ctx.lineJoin = "round";
+    }
+
     ctx.beginPath();
     ctx.moveTo(this.currentStroke[0].x, this.currentStroke[0].y);
-    for (let i = 1; i < this.currentStroke.length; i++)
+    for (let i = 1; i < this.currentStroke.length; i++) {
       ctx.lineTo(this.currentStroke[i].x, this.currentStroke[i].y);
-    ctx.stroke();
+    }
+
+    if (this.tool === "knife") {
+      ctx.closePath();
+      ctx.stroke();
+
+      // Draw a black outline to make it visible on light backgrounds
+      ctx.strokeStyle = "#000";
+      ctx.setLineDash([5, 5]);
+      ctx.lineDashOffset = 5;
+      ctx.stroke();
+    } else {
+      ctx.stroke();
+    }
+
     ctx.restore();
   }
 
@@ -1767,6 +2326,37 @@ export class Engine {
     ctx.lineWidth = 3;
     ctx.setLineDash([12, 6]);
     ctx.strokeRect(b.minX - 24, b.minY - 24, b.width + 48, b.height + 48);
+    ctx.restore();
+  }
+
+  private drawPuppetPins(id: string) {
+    const obj = this.objects[id];
+    if (!this.ctx || !obj || !obj.pins) return;
+    const ctx = this.ctx;
+    ctx.save();
+
+    for (const pin of obj.pins) {
+      const ptForm = this.getFrameTransform(pin.id);
+      const screen = this.localToScreen(id, {
+        x: pin.x + ptForm.x,
+        y: pin.y + ptForm.y,
+      });
+      if (!screen) continue;
+
+      ctx.beginPath();
+      ctx.arc(screen.x, screen.y, 8, 0, Math.PI * 2);
+      ctx.fillStyle = this.meshActivePointId === pin.id ? "#ef4444" : "#ffffff";
+      ctx.fill();
+      ctx.strokeStyle = "#000000";
+      ctx.lineWidth = 2;
+      ctx.stroke();
+
+      // Draw inner dot
+      ctx.beginPath();
+      ctx.arc(screen.x, screen.y, 3, 0, Math.PI * 2);
+      ctx.fillStyle = "#000000";
+      ctx.fill();
+    }
     ctx.restore();
   }
 

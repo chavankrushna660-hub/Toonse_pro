@@ -43,6 +43,12 @@ export type Layer = {
   expanded: boolean;
 };
 
+export type PuppetPin = {
+  id: string;
+  x: number;
+  y: number;
+};
+
 export type DrawingObject = {
   id: string;
   layerId: string;
@@ -63,6 +69,7 @@ export type DrawingObject = {
   locked?: boolean;
   opacity?: number;
   blur?: number;
+  pins?: PuppetPin[];
 };
 
 export type Frame = {
@@ -116,7 +123,9 @@ export type ToolType =
   | "pivot"
   | "bone"
   | "deform"
-  | "curve";
+  | "curve"
+  | "knife"
+  | "puppet";
 
 export type HandleName =
   | "nw"

@@ -11,6 +11,8 @@ import {
   PenLine,
   Spline,
   Wand2,
+  Scissors,
+  Pin
 } from "lucide-react";
 import type { ToolType } from "./types";
 import { useEngine } from "./useEngine";
@@ -27,6 +29,8 @@ const tools: { id: ToolType; icon: React.ReactNode; label: string }[] = [
   { id: "bone", icon: <Bone size={23} />, label: "Bone Rig" },
   { id: "deform", icon: <FlaskConical size={23} />, label: "Geometry Deform" },
   { id: "curve", icon: <Spline size={23} />, label: "Curve Edit" },
+  { id: "knife", icon: <Scissors size={23} />, label: "Knife / Cutter" },
+  { id: "puppet", icon: <Pin size={23} />, label: "Puppet Pin" },
 ];
 
 export function Toolbar() {
