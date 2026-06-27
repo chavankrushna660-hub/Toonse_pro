@@ -33,8 +33,19 @@ export type Transform = {
   perspectiveY: number;
 };
 
+export type Layer = {
+  id: string;
+  name: string;
+  zIndex: number;
+  visible: boolean;
+  locked: boolean;
+  opacity: number;
+  expanded: boolean;
+};
+
 export type DrawingObject = {
   id: string;
+  layerId: string;
   name: string;
   kind: "stroke" | "image";
   points: Point[];
@@ -48,6 +59,10 @@ export type DrawingObject = {
   imageElement?: HTMLImageElement;
   naturalWidth?: number;
   naturalHeight?: number;
+  visible?: boolean;
+  locked?: boolean;
+  opacity?: number;
+  blur?: number;
 };
 
 export type Frame = {

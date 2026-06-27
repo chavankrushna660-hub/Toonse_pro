@@ -1,5 +1,15 @@
 import type React from "react";
-import type { Bone, DrawingObject, Frame, HandleName, Point, RigGroup, ToolType, Transform } from "./types";
+import type {
+  Bone,
+  DrawingObject,
+  Frame,
+  Layer,
+  HandleName,
+  Point,
+  RigGroup,
+  ToolType,
+  Transform,
+} from "./types";
 
 const genId = () => Math.random().toString(36).slice(2, 9);
 
@@ -43,7 +53,8 @@ function matrixToTransform(m: DOMMatrix): Transform {
 }
 
 function boundsOf(points: Point[]) {
-  if (!points.length) return { minX: -1, minY: -1, maxX: 1, maxY: 1, width: 2, height: 2, cx: 0, cy: 0 };
+  if (!points.length)
+    return { minX: -1, minY: -1, maxX: 1, maxY: 1, width: 2, height: 2, cx: 0, cy: 0 };
   let minX = Infinity;
   let minY = Infinity;
   let maxX = -Infinity;
@@ -83,6 +94,8 @@ export class Engine {
   cssHeight = 768;
   dpr = 1;
 
+  layers: Layer[] = [];
+  activeLayerId: string | null = null;
   objects: Record<string, DrawingObject> = {};
   bones: Bone[] = [];
   rigGroups: RigGroup[] = [];
@@ -188,12 +201,12 @@ export class Engine {
     const b = this.getLocalBounds(obj);
     const cellWidth = b.width / (this.meshDensityX - 1);
     const cellHeight = b.height / (this.meshDensityY - 1);
-    
+
     const points: MeshPoint[] = [];
     for (let y = 0; y < this.meshDensityY; y++) {
       for (let x = 0; x < this.meshDensityX; x++) {
-        const ptX = b.minX + (x * cellWidth);
-        const ptY = b.minY + (y * cellHeight);
+        const ptX = b.minX + x * cellWidth;
+        const ptY = b.minY + y * cellHeight;
         points.push({
           id: `point_${x}_${y}`,
           originalX: ptX,
@@ -201,7 +214,7 @@ export class Engine {
           currentX: ptX,
           currentY: ptY,
           pinned: false,
-          pinType: null
+          pinType: null,
         });
       }
     }
@@ -209,7 +222,7 @@ export class Engine {
       drawingId: this.selectedId,
       densityX: this.meshDensityX,
       densityY: this.meshDensityY,
-      points
+      points,
     };
   }
 
@@ -244,7 +257,7 @@ export class Engine {
     if (!preview && this.meshGrid && this.selectedId) {
       // Revert drawing to original geometry if preview disabled
       const obj = this.objects[this.selectedId];
-      obj.points = this.deformationOriginalPoints.map(p => ({...p}));
+      obj.points = this.deformationOriginalPoints.map((p) => ({ ...p }));
     } else if (preview && this.meshGrid) {
       this.updateDrawingGeometry();
     }
@@ -253,48 +266,54 @@ export class Engine {
   }
 
   private bilinearInterpolate(
-    x: number, y: number,
-    topLeft: MeshPoint, topRight: MeshPoint,
-    bottomLeft: MeshPoint, bottomRight: MeshPoint,
-    axis: 'x' | 'y'
+    x: number,
+    y: number,
+    topLeft: MeshPoint,
+    topRight: MeshPoint,
+    bottomLeft: MeshPoint,
+    bottomRight: MeshPoint,
+    axis: "x" | "y",
   ) {
     const x1 = topLeft.originalX;
     const y1 = topLeft.originalY;
     const x2 = bottomRight.originalX;
     const y2 = bottomRight.originalY;
-    
+
     // Normalize coordinates (0 to 1) safely
     const tx = Math.abs(x2 - x1) < 0.001 ? 0 : (x - x1) / (x2 - x1);
     const ty = Math.abs(y2 - y1) < 0.001 ? 0 : (y - y1) / (y2 - y1);
-    
-    const val1 = axis === 'x' ? topLeft.currentX : topLeft.currentY;
-    const val2 = axis === 'x' ? topRight.currentX : topRight.currentY;
-    const val3 = axis === 'x' ? bottomLeft.currentX : bottomLeft.currentY;
-    const val4 = axis === 'x' ? bottomRight.currentX : bottomRight.currentY;
-    
-    return val1 * (1 - tx) * (1 - ty) +
-           val2 * tx * (1 - ty) +
-           val3 * (1 - tx) * ty +
-           val4 * tx * ty;
+
+    const val1 = axis === "x" ? topLeft.currentX : topLeft.currentY;
+    const val2 = axis === "x" ? topRight.currentX : topRight.currentY;
+    const val3 = axis === "x" ? bottomLeft.currentX : bottomLeft.currentY;
+    const val4 = axis === "x" ? bottomRight.currentX : bottomRight.currentY;
+
+    return (
+      val1 * (1 - tx) * (1 - ty) + val2 * tx * (1 - ty) + val3 * (1 - tx) * ty + val4 * tx * ty
+    );
   }
 
   private findCellForPoint(x: number, y: number) {
     if (!this.meshGrid) return null;
     const { densityX, densityY, points } = this.meshGrid;
-    
+
     // Find the cell bounding this point
     for (let cy = 0; cy < densityY - 1; cy++) {
       for (let cx = 0; cx < densityX - 1; cx++) {
         const topLeft = points[cy * densityX + cx];
         const bottomRight = points[(cy + 1) * densityX + (cx + 1)];
         // Add a small epsilon to catch points exactly on the right/bottom edge
-        if (x >= topLeft.originalX && x <= bottomRight.originalX + 0.1 &&
-            y >= topLeft.originalY && y <= bottomRight.originalY + 0.1) {
+        if (
+          x >= topLeft.originalX &&
+          x <= bottomRight.originalX + 0.1 &&
+          y >= topLeft.originalY &&
+          y <= bottomRight.originalY + 0.1
+        ) {
           return {
             topLeft,
             topRight: points[cy * densityX + (cx + 1)],
             bottomLeft: points[(cy + 1) * densityX + cx],
-            bottomRight
+            bottomRight,
           };
         }
       }
@@ -306,13 +325,29 @@ export class Engine {
     if (!this.meshGrid || !this.selectedId || !this.meshPreviewMode) return;
     const obj = this.objects[this.selectedId];
     if (!obj) return;
-    
-    obj.points = this.deformationOriginalPoints.map(origPt => {
+
+    obj.points = this.deformationOriginalPoints.map((origPt) => {
       const cell = this.findCellForPoint(origPt.x, origPt.y);
       if (!cell) return { ...origPt }; // Outside mesh bounds? Return as is
       return {
-        x: this.bilinearInterpolate(origPt.x, origPt.y, cell.topLeft, cell.topRight, cell.bottomLeft, cell.bottomRight, 'x'),
-        y: this.bilinearInterpolate(origPt.x, origPt.y, cell.topLeft, cell.topRight, cell.bottomLeft, cell.bottomRight, 'y')
+        x: this.bilinearInterpolate(
+          origPt.x,
+          origPt.y,
+          cell.topLeft,
+          cell.topRight,
+          cell.bottomLeft,
+          cell.bottomRight,
+          "x",
+        ),
+        y: this.bilinearInterpolate(
+          origPt.x,
+          origPt.y,
+          cell.topLeft,
+          cell.topRight,
+          cell.bottomLeft,
+          cell.bottomRight,
+          "y",
+        ),
       };
     });
   }
@@ -320,23 +355,23 @@ export class Engine {
   private deformAdjacentPoints(movedPoint: MeshPoint) {
     if (!this.meshGrid) return;
     const influenceRadius = 150; // pixels
-    this.meshGrid.points.forEach(point => {
+    this.meshGrid.points.forEach((point) => {
       if (point.id === movedPoint.id) return;
       if (point.pinned) return;
-      
+
       const distance = dist(
         { x: movedPoint.currentX, y: movedPoint.currentY },
-        { x: point.originalX, y: point.originalY }
+        { x: point.originalX, y: point.originalY },
       );
-      
+
       if (distance < influenceRadius) {
         // Influence factor
-        const influence = (1 - (distance / influenceRadius)) ** 2 * 0.4; // Dampened
+        const influence = (1 - distance / influenceRadius) ** 2 * 0.4; // Dampened
         const dx = movedPoint.currentX - movedPoint.originalX;
         const dy = movedPoint.currentY - movedPoint.originalY;
-        
-        point.currentX = point.originalX + (dx * influence);
-        point.currentY = point.originalY + (dy * influence);
+
+        point.currentX = point.originalX + dx * influence;
+        point.currentY = point.originalY + dy * influence;
       }
     });
   }
@@ -350,7 +385,7 @@ export class Engine {
 
   cancelMeshDeformation() {
     if (this.selectedId && this.deformationOriginalPoints.length) {
-      this.objects[this.selectedId].points = this.deformationOriginalPoints.map(p => ({...p}));
+      this.objects[this.selectedId].points = this.deformationOriginalPoints.map((p) => ({ ...p }));
     }
     if (this.tool === "deform") this.generateMeshGrid();
     this.notify();
@@ -363,7 +398,9 @@ export class Engine {
     this.pendingBone = null;
     if (tool === "deform" && this.selectedId) {
       if (!this.deformationOriginalPoints.length) {
-        this.deformationOriginalPoints = this.objects[this.selectedId].points.map(p => ({...p}));
+        this.deformationOriginalPoints = this.objects[this.selectedId].points.map((p) => ({
+          ...p,
+        }));
       }
       this.generateMeshGrid();
     } else {
@@ -382,7 +419,7 @@ export class Engine {
     this.selectedGroupId = null;
     this.selectedBoneId = null;
     if (this.tool === "deform" && this.selectedId) {
-      this.deformationOriginalPoints = this.objects[this.selectedId].points.map(p => ({...p}));
+      this.deformationOriginalPoints = this.objects[this.selectedId].points.map((p) => ({ ...p }));
       this.generateMeshGrid();
     } else {
       this.meshGrid = null;
@@ -488,7 +525,11 @@ export class Engine {
 
   deleteObject(id: string) {
     delete this.objects[id];
-    const deletedBoneIds = new Set(this.bones.filter((bone) => bone.parentId === id || bone.childId === id).map((bone) => bone.id));
+    const deletedBoneIds = new Set(
+      this.bones
+        .filter((bone) => bone.parentId === id || bone.childId === id)
+        .map((bone) => bone.id),
+    );
     this.bones = this.bones.filter((bone) => !deletedBoneIds.has(bone.id));
     this.rigGroups = this.rigGroups
       .map((group) => ({
@@ -499,10 +540,152 @@ export class Engine {
       .filter((group) => group.memberIds.length > 0 || group.boneIds.length > 0);
     for (const frame of this.frames) delete frame.transforms[id];
     if (this.selectedId === id) this.selectedId = null;
-    if (this.selectedGroupId && !this.rigGroups.some((group) => group.id === this.selectedGroupId)) this.selectedGroupId = null;
+    if (this.selectedGroupId && !this.rigGroups.some((group) => group.id === this.selectedGroupId))
+      this.selectedGroupId = null;
     if (this.selectedBoneId && deletedBoneIds.has(this.selectedBoneId)) this.selectedBoneId = null;
     this.notify();
     this.render();
+  }
+
+  toggleVisibility(id: string) {
+    const obj = this.objects[id];
+    if (obj) obj.visible = obj.visible === false ? true : false;
+    this.notify();
+    this.render();
+  }
+
+  toggleLock(id: string) {
+    const obj = this.objects[id];
+    if (obj) obj.locked = obj.locked === true ? false : true;
+    this.notify();
+    this.render();
+  }
+
+  moveLayerUp(id: string) {
+    const obj = this.objects[id];
+    if (!obj) return;
+    const all = Object.values(this.objects).sort((a, b) => a.zIndex - b.zIndex);
+    const idx = all.findIndex((o) => o.id === id);
+    if (idx < all.length - 1) {
+      const next = all[idx + 1];
+      const temp = obj.zIndex;
+      obj.zIndex = next.zIndex;
+      next.zIndex = temp;
+      this.notify();
+      this.render();
+    }
+  }
+
+  moveLayerDown(id: string) {
+    const obj = this.objects[id];
+    if (!obj) return;
+    const all = Object.values(this.objects).sort((a, b) => a.zIndex - b.zIndex);
+    const idx = all.findIndex((o) => o.id === id);
+    if (idx > 0) {
+      const prev = all[idx - 1];
+      const temp = obj.zIndex;
+      obj.zIndex = prev.zIndex;
+      prev.zIndex = temp;
+      this.notify();
+      this.render();
+    }
+  }
+
+  setObjectOpacity(id: string, opacity: number) {
+    const obj = this.objects[id];
+    if (obj) obj.opacity = opacity;
+    this.notify();
+    this.render();
+  }
+
+  setObjectBlur(id: string, blur: number) {
+    const obj = this.objects[id];
+    if (obj) obj.blur = blur;
+    this.notify();
+    this.render();
+  }
+
+  renameLayer(id: string, name: string) {
+    const layer = this.layers.find((l) => l.id === id);
+    if (layer) layer.name = name;
+    this.notify();
+  }
+
+  deleteLayer(id: string) {
+    this.layers = this.layers.filter((l) => l.id !== id);
+    if (this.activeLayerId === id) {
+      this.activeLayerId = this.layers.length > 0 ? this.layers[this.layers.length - 1].id : null;
+    }
+    const objectsToDelete = Object.values(this.objects)
+      .filter((o) => o.layerId === id)
+      .map((o) => o.id);
+    for (const objId of objectsToDelete) {
+      this.deleteObject(objId);
+    }
+    this.notify();
+    this.render();
+  }
+
+  toggleLayerVisibility(id: string) {
+    const layer = this.layers.find((l) => l.id === id);
+    if (layer) layer.visible = !layer.visible;
+    this.notify();
+    this.render();
+  }
+
+  toggleLayerLock(id: string) {
+    const layer = this.layers.find((l) => l.id === id);
+    if (layer) layer.locked = !layer.locked;
+    this.notify();
+    this.render();
+  }
+
+  toggleLayerExpanded(id: string) {
+    const layer = this.layers.find((l) => l.id === id);
+    if (layer) layer.expanded = !layer.expanded;
+    this.notify();
+  }
+
+  setActiveLayer(id: string) {
+    this.activeLayerId = id;
+    this.notify();
+  }
+
+  moveObjectToLayer(objId: string, layerId: string) {
+    if (this.objects[objId]) {
+      this.objects[objId].layerId = layerId;
+      this.notify();
+      this.render();
+    }
+  }
+
+  moveLayerUp(id: string) {
+    const idx = this.layers.findIndex((l) => l.id === id);
+    if (idx < this.layers.length - 1) {
+      const temp = this.layers[idx];
+      this.layers[idx] = this.layers[idx + 1];
+      this.layers[idx + 1] = temp;
+      this.notify();
+      this.render();
+    }
+  }
+
+  moveLayerDown(id: string) {
+    const idx = this.layers.findIndex((l) => l.id === id);
+    if (idx > 0) {
+      const temp = this.layers[idx];
+      this.layers[idx] = this.layers[idx - 1];
+      this.layers[idx - 1] = temp;
+      this.notify();
+      this.render();
+    }
+  }
+
+  renameObject(id: string, name: string) {
+    if (this.objects[id]) {
+      this.objects[id].name = name;
+      this.notify();
+    }
   }
 
   deleteBone(id: string) {
@@ -567,7 +750,8 @@ export class Engine {
     const group = this.rigGroups.find((item) => item.id === this.selectedGroupId);
     if (!group) return;
     const prev = group.transform[prop];
-    group.transform[prop] = prop === "scaleX" || prop === "scaleY" ? (value === 0 ? 0.01 : value) : value;
+    group.transform[prop] =
+      prop === "scaleX" || prop === "scaleY" ? (value === 0 ? 0.01 : value) : value;
     const roots = this.getGroupRootIds(group);
     if (prop === "x" || prop === "y") {
       const delta = group.transform[prop] - prev;
@@ -616,7 +800,15 @@ export class Engine {
   confirmPendingBone() {
     if (!this.pendingBoneConfirm) return;
     const pending = this.pendingBoneConfirm;
-    this.addBone(pending.startId, pending.endId, pending.startAnchor, pending.endAnchor, pending.allowDetach, pending.autoGroup, pending.groupName);
+    this.addBone(
+      pending.startId,
+      pending.endId,
+      pending.startAnchor,
+      pending.endAnchor,
+      pending.allowDetach,
+      pending.autoGroup,
+      pending.groupName,
+    );
     this.pendingBoneConfirm = null;
     this.notify();
     this.render();
@@ -655,6 +847,7 @@ export class Engine {
       image.onerror = reject;
       image.src = dataUrl;
     });
+    this.ensureActiveLayer();
     const id = genId();
     const width = Math.min(img.naturalWidth, this.cssWidth * 0.55);
     const height = (width / img.naturalWidth) * img.naturalHeight;
@@ -666,6 +859,7 @@ export class Engine {
     ];
     this.objects[id] = {
       id,
+      layerId: this.activeLayerId!,
       name: `PNG ${Object.keys(this.objects).length + 1}`,
       kind: "image",
       points,
@@ -678,7 +872,8 @@ export class Engine {
       naturalWidth: img.naturalWidth,
       naturalHeight: img.naturalHeight,
     };
-    for (const frame of this.frames) frame.transforms[id] = defaultTransform(this.cssWidth / 2, this.cssHeight / 2);
+    for (const frame of this.frames)
+      frame.transforms[id] = defaultTransform(this.cssWidth / 2, this.cssHeight / 2);
     this.selectedId = id;
     this.notify();
     this.render();
@@ -751,7 +946,7 @@ export class Engine {
       let bestPt = null;
       let bestDist = Infinity;
       for (const mpt of this.meshGrid.points) {
-        const d = dist({x: mpt.currentX, y: mpt.currentY}, local);
+        const d = dist({ x: mpt.currentX, y: mpt.currentY }, local);
         if (d < bestDist && d < this.meshPointSize * 1.5) {
           bestPt = mpt;
           bestDist = d;
@@ -760,10 +955,10 @@ export class Engine {
 
       if (bestPt) {
         if (e.button === 2 || e.buttons === 2 || e.ctrlKey) {
-           bestPt.pinned = !bestPt.pinned;
-           bestPt.pinType = bestPt.pinned ? "fixed" : null;
-           this.render();
-           return;
+          bestPt.pinned = !bestPt.pinned;
+          bestPt.pinType = bestPt.pinned ? "fixed" : null;
+          this.render();
+          return;
         }
 
         this.meshActivePointId = bestPt.id;
@@ -792,7 +987,10 @@ export class Engine {
     const pt = this.getPointer(e);
     if (this.pendingBone) this.pendingBone.current = pt;
 
-    if (this.dragAction === "draw" && (this.tool === "brush" || this.tool === "pen" || this.tool === "texture")) {
+    if (
+      this.dragAction === "draw" &&
+      (this.tool === "brush" || this.tool === "pen" || this.tool === "texture")
+    ) {
       const last = this.currentStroke[this.currentStroke.length - 1];
       if (!last || dist(last, pt) > (this.tool === "pen" ? 2 : 1.2)) this.currentStroke.push(pt);
       this.render();
@@ -814,23 +1012,27 @@ export class Engine {
       return;
     }
 
-    if (this.dragAction === "deform" && this.selectedId && this.meshGrid && this.meshActivePointId) {
+    if (
+      this.dragAction === "deform" &&
+      this.selectedId &&
+      this.meshGrid &&
+      this.meshActivePointId
+    ) {
       const local = this.screenToLocal(this.selectedId, pt);
       if (!local) return;
-      
-      const movedPoint = this.meshGrid.points.find(p => p.id === this.meshActivePointId);
+
+      const movedPoint = this.meshGrid.points.find((p) => p.id === this.meshActivePointId);
       if (!movedPoint || movedPoint.pinned) return;
 
       movedPoint.currentX = local.x;
       movedPoint.currentY = local.y;
-      
+
       this.deformAdjacentPoints(movedPoint);
-      
+
       if (this.meshPreviewMode) {
         this.updateDrawingGeometry();
       }
-      
-      this.notify();
+
       this.render();
       return;
     }
@@ -847,12 +1049,17 @@ export class Engine {
         const eased = weight * weight * (3 - 2 * weight);
         return { x: p.x + dx * eased, y: p.y + dy * eased };
       });
-      this.notify();
       this.render();
       return;
     }
 
-    if (this.tool === "select" && this.selectedId && this.dragAction && this.initialTransform && this.dragStartPt) {
+    if (
+      this.tool === "select" &&
+      this.selectedId &&
+      this.dragAction &&
+      this.initialTransform &&
+      this.dragStartPt
+    ) {
       this.applyTransformDrag(pt);
     }
   }
@@ -866,7 +1073,10 @@ export class Engine {
       }
     }
 
-    if (this.dragAction === "draw" && (this.tool === "brush" || this.tool === "pen" || this.tool === "texture")) {
+    if (
+      this.dragAction === "draw" &&
+      (this.tool === "brush" || this.tool === "pen" || this.tool === "texture")
+    ) {
       this.finishStroke();
     }
 
@@ -944,13 +1154,16 @@ export class Engine {
     this.initialTransform = cloneTransform(this.getFrameTransform(this.selectedId));
     this.initialMatrix = this.getEffectiveMatrix(this.selectedId, this.currentFrameIdx);
     const parentId = this.getParentId(this.selectedId);
-    const parentMatrix = parentId ? this.getEffectiveMatrix(parentId, this.currentFrameIdx) : new DOMMatrix();
+    const parentMatrix = parentId
+      ? this.getEffectiveMatrix(parentId, this.currentFrameIdx)
+      : new DOMMatrix();
     this.initialParentInverse = parentMatrix.inverse();
     this.dragStartLocal = new DOMPoint(pt.x, pt.y).matrixTransform(this.initialMatrix.inverse());
   }
 
   private applyTransformDrag(pt: Point) {
-    if (!this.selectedId || !this.initialTransform || !this.dragStartPt || !this.initialMatrix) return;
+    if (!this.selectedId || !this.initialTransform || !this.dragStartPt || !this.initialMatrix)
+      return;
     const t = this.getFrameTransform(this.selectedId);
     const obj = this.objects[this.selectedId];
     const action = this.dragAction;
@@ -966,7 +1179,6 @@ export class Engine {
       t.x = this.initialTransform.x + now.x - start.x;
       t.y = this.initialTransform.y + now.y - start.y;
       this.refreshAllowedDetachDistances(this.selectedId);
-      this.notify();
       this.render();
       return;
     }
@@ -976,20 +1188,39 @@ export class Engine {
     const localStart = this.dragStartLocal ?? localNow;
 
     if (action === "rotate") {
-      const pivotWorld = new DOMPoint(this.initialTransform.pivotX, this.initialTransform.pivotY).matrixTransform(this.initialMatrix);
+      const pivotWorld = new DOMPoint(
+        this.initialTransform.pivotX,
+        this.initialTransform.pivotY,
+      ).matrixTransform(this.initialMatrix);
       const a1 = Math.atan2(this.dragStartPt.y - pivotWorld.y, this.dragStartPt.x - pivotWorld.x);
       const a2 = Math.atan2(pt.y - pivotWorld.y, pt.x - pivotWorld.x);
       t.rotation = this.initialTransform.rotation + ((a2 - a1) * 180) / Math.PI;
     } else if (action === "perspective") {
-      t.perspectiveX = clamp(this.initialTransform.perspectiveX + (pt.x - this.dragStartPt.x) / 260, -1.8, 1.8);
-      t.perspectiveY = clamp(this.initialTransform.perspectiveY + (pt.y - this.dragStartPt.y) / 260, -1.8, 1.8);
+      t.perspectiveX = clamp(
+        this.initialTransform.perspectiveX + (pt.x - this.dragStartPt.x) / 260,
+        -1.8,
+        1.8,
+      );
+      t.perspectiveY = clamp(
+        this.initialTransform.perspectiveY + (pt.y - this.dragStartPt.y) / 260,
+        -1.8,
+        1.8,
+      );
       t.skewX = clamp(this.initialTransform.skewX + (pt.x - this.dragStartPt.x) / 4, -75, 75);
     } else if (action === "flip") {
       t.flipX = clamp(this.initialTransform.flipX + (pt.x - this.dragStartPt.x) / 2, -180, 180);
       t.flipY = clamp(this.initialTransform.flipY + (pt.y - this.dragStartPt.y) / 2, -180, 180);
     } else if (action) {
-      const horizontal = action.includes("e") ? { fixed: b.minX, moving: b.maxX } : action.includes("w") ? { fixed: b.maxX, moving: b.minX } : null;
-      const vertical = action.includes("s") ? { fixed: b.minY, moving: b.maxY } : action.includes("n") ? { fixed: b.maxY, moving: b.minY } : null;
+      const horizontal = action.includes("e")
+        ? { fixed: b.minX, moving: b.maxX }
+        : action.includes("w")
+          ? { fixed: b.maxX, moving: b.minX }
+          : null;
+      const vertical = action.includes("s")
+        ? { fixed: b.minY, moving: b.maxY }
+        : action.includes("n")
+          ? { fixed: b.maxY, moving: b.minY }
+          : null;
       if (horizontal) {
         const startLen = localStart.x - horizontal.fixed || 1;
         const newLen = localNow.x - horizontal.fixed;
@@ -1001,6 +1232,60 @@ export class Engine {
         t.scaleY = clamp(this.initialTransform.scaleY * (newLen / startLen), -20, 20) || 0.01;
       }
     }
+    this.render();
+  }
+
+  ensureActiveLayer() {
+    if (this.layers.length === 0) {
+      const layerId = genId();
+      this.layers.push({
+        id: layerId,
+        name: "Layer 1",
+        zIndex: 0,
+        visible: true,
+        locked: false,
+        opacity: 1,
+        expanded: true,
+      });
+      this.activeLayerId = layerId;
+    } else if (!this.activeLayerId) {
+      this.activeLayerId = this.layers[this.layers.length - 1].id;
+    }
+  }
+
+  addLayer() {
+    const id = genId();
+    this.layers.push({
+      id,
+      name: `Layer ${this.layers.length + 1}`,
+      zIndex: this.layers.length,
+      visible: true,
+      locked: false,
+      opacity: 1,
+      expanded: true,
+    });
+    this.activeLayerId = id;
+    this.notify();
+    this.render();
+  }
+
+  addEmptyLayer() {
+    this.ensureActiveLayer();
+    const id = genId();
+    this.objects[id] = {
+      id,
+      layerId: this.activeLayerId!,
+      name: `Drawing ${Object.keys(this.objects).length + 1}`,
+      kind: "stroke",
+      points: [],
+      color: this.currentColor,
+      width: this.currentWidth,
+      isClosed: false,
+      zIndex: this.nextZIndex(),
+    };
+    for (const frame of this.frames)
+      frame.transforms[id] = defaultTransform(this.cssWidth / 2, this.cssHeight / 2);
+    this.selectedId = id;
     this.notify();
     this.render();
   }
@@ -1008,16 +1293,21 @@ export class Engine {
   private finishStroke() {
     const raw = this.currentStroke;
     this.currentStroke = [];
-    if (raw.length < 2) return;
+    if (raw.length < 1) return;
+    if (raw.length === 1) {
+      raw.push({ x: raw[0].x + 0.1, y: raw[0].y + 0.1 });
+    }
     const dense = densify(raw, this.tool === "pen" ? 7 : 3.5);
     const rawBounds = boundsOf(dense);
     const center = { x: rawBounds.cx, y: rawBounds.cy };
     const localPoints = dense.map((p) => ({ x: p.x - center.x, y: p.y - center.y }));
     const closed = dist(raw[0], raw[raw.length - 1]) < Math.max(22, this.currentWidth * 4);
+    this.ensureActiveLayer();
     const id = genId();
     const baseName = this.tool === "texture" ? "Texture" : this.tool === "pen" ? "Pen" : "Brush";
     this.objects[id] = {
       id,
+      layerId: this.activeLayerId!,
       name: `${baseName} ${Object.keys(this.objects).length + 1}`,
       kind: "stroke",
       points: localPoints,
@@ -1035,7 +1325,10 @@ export class Engine {
   }
 
   private fillAtPoint(pt: Point) {
-    let target = this.selectedId && this.hitTestObject(this.selectedId, pt) ? this.selectedId : this.hitTestTop(pt);
+    let target =
+      this.selectedId && this.hitTestObject(this.selectedId, pt)
+        ? this.selectedId
+        : this.hitTestTop(pt);
     if (!target && this.selectedId) target = this.selectedId;
     if (!target) return;
     this.objects[target].fillColor = this.currentColor;
@@ -1061,10 +1354,22 @@ export class Engine {
     }
   }
 
-  private addBone(startId: string, endId: string, startAnchor: Point, endAnchor: Point, allowDetach = false, autoGroup = true, groupName?: string) {
+  private addBone(
+    startId: string,
+    endId: string,
+    startAnchor: Point,
+    endAnchor: Point,
+    allowDetach = false,
+    autoGroup = true,
+    groupName?: string,
+  ) {
     if (startId === endId || !this.objects[startId] || !this.objects[endId]) return;
-    const startArea = this.getLocalBounds(this.objects[startId]).width * this.getLocalBounds(this.objects[startId]).height;
-    const endArea = this.getLocalBounds(this.objects[endId]).width * this.getLocalBounds(this.objects[endId]).height;
+    const startArea =
+      this.getLocalBounds(this.objects[startId]).width *
+      this.getLocalBounds(this.objects[startId]).height;
+    const endArea =
+      this.getLocalBounds(this.objects[endId]).width *
+      this.getLocalBounds(this.objects[endId]).height;
     const parentId = endArea >= startArea ? endId : startId;
     const childId = parentId === startId ? endId : startId;
     const parentAnchor = parentId === startId ? startAnchor : endAnchor;
@@ -1114,7 +1419,9 @@ export class Engine {
   }
 
   private ensureRigGroup(aId: string, bId: string, preferredName?: string) {
-    const existingGroups = this.rigGroups.filter((group) => group.memberIds.includes(aId) || group.memberIds.includes(bId));
+    const existingGroups = this.rigGroups.filter(
+      (group) => group.memberIds.includes(aId) || group.memberIds.includes(bId),
+    );
     if (!existingGroups.length) {
       const group: RigGroup = {
         id: genId(),
@@ -1138,7 +1445,9 @@ export class Engine {
     }
     primary.memberIds = [...members];
     primary.boneIds = [...boneIds];
-    this.rigGroups = this.rigGroups.filter((group) => group === primary || !existingGroups.includes(group));
+    this.rigGroups = this.rigGroups.filter(
+      (group) => group === primary || !existingGroups.includes(group),
+    );
     return primary.id;
   }
 
@@ -1160,7 +1469,13 @@ export class Engine {
   }
 
   getConnectedBones(id: string) {
-    return this.bones.filter((bone) => bone.parentId === id || bone.childId === id || bone.start.drawingId === id || bone.end.drawingId === id);
+    return this.bones.filter(
+      (bone) =>
+        bone.parentId === id ||
+        bone.childId === id ||
+        bone.start.drawingId === id ||
+        bone.end.drawingId === id,
+    );
   }
 
   getBoneCurrentDistance(id: string) {
@@ -1194,7 +1509,10 @@ export class Engine {
     m.skewYSelf(t.skewY);
     const flipScaleX = Math.cos((t.flipX * Math.PI) / 180);
     const flipScaleY = Math.cos((t.flipY * Math.PI) / 180);
-    m.scaleSelf(t.scaleX * (Math.abs(flipScaleX) < 0.04 ? 0.04 : flipScaleX), t.scaleY * (Math.abs(flipScaleY) < 0.04 ? 0.04 : flipScaleY));
+    m.scaleSelf(
+      t.scaleX * (Math.abs(flipScaleX) < 0.04 ? 0.04 : flipScaleX),
+      t.scaleY * (Math.abs(flipScaleY) < 0.04 ? 0.04 : flipScaleY),
+    );
     m.translateSelf(-t.pivotX, -t.pivotY);
     return m;
   }
@@ -1203,7 +1521,11 @@ export class Engine {
     return this.localMatrix({ ...t, x: 0, y: 0 });
   }
 
-  getEffectiveMatrix(id: string, frameIdx = this.currentFrameIdx, seen = new Set<string>()): DOMMatrix {
+  getEffectiveMatrix(
+    id: string,
+    frameIdx = this.currentFrameIdx,
+    seen = new Set<string>(),
+  ): DOMMatrix {
     if (seen.has(id)) return new DOMMatrix();
     seen.add(id);
     const local = this.localMatrix(this.getFrameTransform(id, frameIdx));
@@ -1249,12 +1571,18 @@ export class Engine {
   }
 
   private renderObject(obj: DrawingObject, frameIdx: number, alpha = 1) {
+    if (obj.visible === false) return;
+    const layer = this.layers.find((l) => l.id === obj.layerId);
+    if (layer && !layer.visible) return;
     if (!this.ctx) return;
     const ctx = this.ctx;
     const matrix = this.getEffectiveMatrix(obj.id, frameIdx);
     const t = this.getFrameTransform(obj.id, frameIdx);
     ctx.save();
-    ctx.globalAlpha *= alpha;
+    ctx.globalAlpha *= alpha * (obj.opacity ?? 1) * (layer ? layer.opacity : 1);
+    if (obj.blur) {
+      ctx.filter = `blur(${obj.blur}px)`;
+    }
     ctx.transform(matrix.a, matrix.b, matrix.c, matrix.d, matrix.e, matrix.f);
 
     if (obj.kind === "image" && obj.imageElement) {
@@ -1290,7 +1618,8 @@ export class Engine {
     const sorted = Object.values(this.objects).sort((a, b) => a.zIndex - b.zIndex);
     if (this.onionSkin && this.frames.length > 1) {
       const prev = Math.max(0, this.currentFrameIdx - 1);
-      if (prev !== this.currentFrameIdx) sorted.forEach((obj) => this.renderObject(obj, prev, 0.24));
+      if (prev !== this.currentFrameIdx)
+        sorted.forEach((obj) => this.renderObject(obj, prev, 0.24));
     }
     sorted.forEach((obj) => this.renderObject(obj, this.currentFrameIdx, 1));
     this.drawBones();
@@ -1312,7 +1641,8 @@ export class Engine {
     ctx.lineJoin = "round";
     ctx.beginPath();
     ctx.moveTo(this.currentStroke[0].x, this.currentStroke[0].y);
-    for (let i = 1; i < this.currentStroke.length; i++) ctx.lineTo(this.currentStroke[i].x, this.currentStroke[i].y);
+    for (let i = 1; i < this.currentStroke.length; i++)
+      ctx.lineTo(this.currentStroke[i].x, this.currentStroke[i].y);
     ctx.stroke();
     ctx.restore();
   }
@@ -1398,7 +1728,10 @@ export class Engine {
       ctx.fill();
       ctx.stroke();
     }
-    const pivot = this.localToScreen(id, { x: this.getFrameTransform(id).pivotX, y: this.getFrameTransform(id).pivotY });
+    const pivot = this.localToScreen(id, {
+      x: this.getFrameTransform(id).pivotX,
+      y: this.getFrameTransform(id).pivotY,
+    });
     if (pivot) {
       ctx.fillStyle = "#ef4444";
       ctx.beginPath();
@@ -1442,7 +1775,7 @@ export class Engine {
     const ctx = this.ctx;
     const { points, densityX, densityY } = this.meshGrid;
     ctx.save();
-    
+
     if (this.meshShowGrid) {
       ctx.strokeStyle = "rgba(100, 116, 139, 0.4)";
       ctx.lineWidth = 1;
@@ -1454,7 +1787,10 @@ export class Engine {
           if (!screen) continue;
           if (x < densityX - 1) {
             const rightPt = points[y * densityX + (x + 1)];
-            const screenRight = this.localToScreen(id, { x: rightPt.currentX, y: rightPt.currentY });
+            const screenRight = this.localToScreen(id, {
+              x: rightPt.currentX,
+              y: rightPt.currentY,
+            });
             if (screenRight) {
               ctx.moveTo(screen.x, screen.y);
               ctx.lineTo(screenRight.x, screenRight.y);
@@ -1462,7 +1798,10 @@ export class Engine {
           }
           if (y < densityY - 1) {
             const bottomPt = points[(y + 1) * densityX + x];
-            const screenBottom = this.localToScreen(id, { x: bottomPt.currentX, y: bottomPt.currentY });
+            const screenBottom = this.localToScreen(id, {
+              x: bottomPt.currentX,
+              y: bottomPt.currentY,
+            });
             if (screenBottom) {
               ctx.moveTo(screen.x, screen.y);
               ctx.lineTo(screenBottom.x, screenBottom.y);
@@ -1472,7 +1811,7 @@ export class Engine {
       }
       ctx.stroke();
     }
-    
+
     if (this.meshShowPoints) {
       for (const pt of points) {
         const screen = this.localToScreen(id, { x: pt.currentX, y: pt.currentY });
@@ -1482,7 +1821,12 @@ export class Engine {
           ctx.fillStyle = "#eab308";
           ctx.arc(screen.x, screen.y, this.meshPointSize * 0.4, 0, Math.PI * 2);
         } else if (pt.pinned) {
-          ctx.fillStyle = pt.pinType === "fixed" ? "#ef4444" : pt.pinType === "semi-fixed" ? "#eab308" : "#22c55e";
+          ctx.fillStyle =
+            pt.pinType === "fixed"
+              ? "#ef4444"
+              : pt.pinType === "semi-fixed"
+                ? "#eab308"
+                : "#22c55e";
           ctx.arc(screen.x, screen.y, this.meshPointSize * 0.3, 0, Math.PI * 2);
         } else {
           ctx.fillStyle = "#14b8a6";
@@ -1546,7 +1890,9 @@ export class Engine {
 
   private getGroupRootIds(group: RigGroup) {
     const members = new Set(group.memberIds);
-    return group.memberIds.filter((id) => this.objects[id] && !members.has(this.getParentId(id) ?? ""));
+    return group.memberIds.filter(
+      (id) => this.objects[id] && !members.has(this.getParentId(id) ?? ""),
+    );
   }
 
   private hasLockedIncomingBone(id: string) {
@@ -1576,9 +1922,13 @@ export class Engine {
           y: parentWorld.y + unitY * bone.lockedDistance,
         };
         const parentMatrix = this.getEffectiveMatrix(bone.parentId, this.currentFrameIdx);
-        const desiredParentLocal = new DOMPoint(desiredWorld.x, desiredWorld.y).matrixTransform(parentMatrix.inverse());
+        const desiredParentLocal = new DOMPoint(desiredWorld.x, desiredWorld.y).matrixTransform(
+          parentMatrix.inverse(),
+        );
         const childTransform = this.getFrameTransform(bone.childId);
-        const anchorBase = new DOMPoint(bone.childAnchor.x, bone.childAnchor.y).matrixTransform(this.localMatrixWithoutTranslation(childTransform));
+        const anchorBase = new DOMPoint(bone.childAnchor.x, bone.childAnchor.y).matrixTransform(
+          this.localMatrixWithoutTranslation(childTransform),
+        );
         childTransform.x = desiredParentLocal.x - anchorBase.x;
         childTransform.y = desiredParentLocal.y - anchorBase.y;
       }
@@ -1606,11 +1956,12 @@ export class Engine {
 
   private hitTestObject(id: string, pt: Point) {
     const obj = this.objects[id];
-    if (!obj) return false;
+    if (!obj || obj.visible === false || obj.locked === true) return false;
     const local = this.screenToLocal(id, pt);
     if (!local) return false;
     const b = this.getLocalBounds(obj);
-    if (obj.kind === "image") return local.x >= b.minX && local.x <= b.maxX && local.y >= b.minY && local.y <= b.maxY;
+    if (obj.kind === "image")
+      return local.x >= b.minX && local.x <= b.maxX && local.y >= b.minY && local.y <= b.maxY;
     if (obj.isClosed || obj.fillColor) {
       const path = new Path2D();
       path.moveTo(obj.points[0].x, obj.points[0].y);
@@ -1646,7 +1997,9 @@ export class Engine {
 
   private localToScreen(id: string, pt: Point): Point | null {
     if (!this.objects[id]) return null;
-    const p = new DOMPoint(pt.x, pt.y).matrixTransform(this.getEffectiveMatrix(id, this.currentFrameIdx));
+    const p = new DOMPoint(pt.x, pt.y).matrixTransform(
+      this.getEffectiveMatrix(id, this.currentFrameIdx),
+    );
     return { x: p.x, y: p.y };
   }
 

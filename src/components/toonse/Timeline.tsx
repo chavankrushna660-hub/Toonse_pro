@@ -8,7 +8,8 @@ export function Timeline() {
     <div className="toonse-timeline">
       <div className="toonse-timelineControls">
         <button type="button" onPointerDown={() => engine.togglePlay()}>
-          {engine.isPlaying ? <Pause size={15} /> : <Play size={15} />} {engine.isPlaying ? "Pause" : "Play"}
+          {engine.isPlaying ? <Pause size={15} /> : <Play size={15} />}{" "}
+          {engine.isPlaying ? "Pause" : "Play"}
         </button>
         <button
           type="button"
@@ -62,7 +63,12 @@ export function Timeline() {
             )}
           </div>
         ))}
-        <button type="button" className="toonse-addFrame" onPointerDown={() => engine.addFrame()} aria-label="Add frame">
+        <button
+          type="button"
+          className="toonse-addFrame"
+          onPointerDown={() => engine.addFrame()}
+          aria-label="Add frame"
+        >
           <Plus size={18} />
         </button>
       </div>

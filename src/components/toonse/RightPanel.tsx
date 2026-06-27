@@ -23,16 +23,35 @@ function Slider({
         {label}
         <strong>{Number.isFinite(value) ? value.toFixed(step < 1 ? 2 : 0) : "0"}</strong>
       </span>
-      <input type="range" value={value} min={min} max={max} step={step} onChange={(event) => onChange(Number(event.target.value))} />
+      <input
+        type="range"
+        value={value}
+        min={min}
+        max={max}
+        step={step}
+        onChange={(event) => onChange(Number(event.target.value))}
+      />
     </label>
   );
 }
 
-function NumberField({ label, value, onChange }: { label: string; value: number; onChange: (value: number) => void }) {
+function NumberField({
+  label,
+  value,
+  onChange,
+}: {
+  label: string;
+  value: number;
+  onChange: (value: number) => void;
+}) {
   return (
     <label className="toonse-numberField">
       {label}
-      <input type="number" value={Math.round(value * 100) / 100} onChange={(event) => onChange(Number(event.target.value))} />
+      <input
+        type="number"
+        value={Math.round(value * 100) / 100}
+        onChange={(event) => onChange(Number(event.target.value))}
+      />
     </label>
   );
 }
@@ -80,14 +99,25 @@ export function RightPanel({ isOpen }: { isOpen: boolean }) {
           </div>
           <label className="toonse-textField">
             Group name
-            <input value={engine.pendingBoneConfirm.groupName} onChange={(event) => engine.setPendingBoneGroupName(event.target.value)} />
+            <input
+              value={engine.pendingBoneConfirm.groupName}
+              onChange={(event) => engine.setPendingBoneGroupName(event.target.value)}
+            />
           </label>
           <label className="toonse-checkRow">
-            <input type="checkbox" checked={engine.pendingBoneConfirm.autoGroup} onChange={(event) => engine.setPendingBoneAutoGroup(event.target.checked)} />
+            <input
+              type="checkbox"
+              checked={engine.pendingBoneConfirm.autoGroup}
+              onChange={(event) => engine.setPendingBoneAutoGroup(event.target.checked)}
+            />
             Create group automatically
           </label>
           <label className="toonse-checkRow">
-            <input type="checkbox" checked={engine.pendingBoneConfirm.allowDetach} onChange={(event) => engine.setPendingBoneAllowDetach(event.target.checked)} />
+            <input
+              type="checkbox"
+              checked={engine.pendingBoneConfirm.allowDetach}
+              onChange={(event) => engine.setPendingBoneAllowDetach(event.target.checked)}
+            />
             Allow detachments
           </label>
           <div className="toonse-rowButtons">
@@ -105,32 +135,68 @@ export function RightPanel({ isOpen }: { isOpen: boolean }) {
             <strong>Mesh Transform Options</strong>
             <span>Modify grid to deform the drawing</span>
           </div>
-          <Slider label="Grid Density X" value={engine.meshDensityX} min={2} max={30} onChange={(value) => engine.setMeshDensity(value, engine.meshDensityY)} />
-          <Slider label="Grid Density Y" value={engine.meshDensityY} min={2} max={30} onChange={(value) => engine.setMeshDensity(engine.meshDensityX, value)} />
-          <Slider label="Point Size" value={engine.meshPointSize} min={10} max={60} onChange={(value) => engine.setMeshPointSize(value)} />
+          <Slider
+            label="Grid Density X"
+            value={engine.meshDensityX}
+            min={2}
+            max={30}
+            onChange={(value) => engine.setMeshDensity(value, engine.meshDensityY)}
+          />
+          <Slider
+            label="Grid Density Y"
+            value={engine.meshDensityY}
+            min={2}
+            max={30}
+            onChange={(value) => engine.setMeshDensity(engine.meshDensityX, value)}
+          />
+          <Slider
+            label="Point Size"
+            value={engine.meshPointSize}
+            min={10}
+            max={60}
+            onChange={(value) => engine.setMeshPointSize(value)}
+          />
           <label className="toonse-checkRow">
-            <input type="checkbox" checked={engine.meshShowGrid} onChange={(event) => engine.setMeshShowGrid(event.target.checked)} />
+            <input
+              type="checkbox"
+              checked={engine.meshShowGrid}
+              onChange={(event) => engine.setMeshShowGrid(event.target.checked)}
+            />
             Show Grid Lines
           </label>
           <label className="toonse-checkRow">
-            <input type="checkbox" checked={engine.meshShowPoints} onChange={(event) => engine.setMeshShowPoints(event.target.checked)} />
+            <input
+              type="checkbox"
+              checked={engine.meshShowPoints}
+              onChange={(event) => engine.setMeshShowPoints(event.target.checked)}
+            />
             Show Points
           </label>
           <label className="toonse-checkRow">
-            <input type="checkbox" checked={engine.meshPreviewMode} onChange={(event) => engine.setMeshPreviewMode(event.target.checked)} />
+            <input
+              type="checkbox"
+              checked={engine.meshPreviewMode}
+              onChange={(event) => engine.setMeshPreviewMode(event.target.checked)}
+            />
             Preview Mode
           </label>
           <div className="toonse-rowButtons">
-            <button type="button" onClick={() => {
-              engine.applyMeshDeformation();
-              engine.setTool("select");
-            }}>
+            <button
+              type="button"
+              onClick={() => {
+                engine.applyMeshDeformation();
+                engine.setTool("select");
+              }}
+            >
               Done
             </button>
-            <button type="button" onClick={() => {
-              engine.cancelMeshDeformation();
-              engine.setTool("select");
-            }}>
+            <button
+              type="button"
+              onClick={() => {
+                engine.cancelMeshDeformation();
+                engine.setTool("select");
+              }}
+            >
               Cancel
             </button>
           </div>
@@ -143,14 +209,23 @@ export function RightPanel({ isOpen }: { isOpen: boolean }) {
             </strong>
             <span>Start: {engine.objects[selectedBone.start.drawingId]?.name}</span>
             <span>End: {engine.objects[selectedBone.end.drawingId]?.name}</span>
-            <span>Current Distance: {Math.round(engine.getBoneCurrentDistance(selectedBone.id))}px</span>
+            <span>
+              Current Distance: {Math.round(engine.getBoneCurrentDistance(selectedBone.id))}px
+            </span>
             <span>Locked Distance: {Math.round(selectedBone.lockedDistance)}px</span>
           </div>
           <label className="toonse-checkRow">
-            <input type="checkbox" checked={selectedBone.allowDetach} onChange={(event) => engine.setBoneAllowDetach(selectedBone.id, event.target.checked)} />
+            <input
+              type="checkbox"
+              checked={selectedBone.allowDetach}
+              onChange={(event) => engine.setBoneAllowDetach(selectedBone.id, event.target.checked)}
+            />
             Allow detachments
           </label>
-          <p className="toonse-empty">When detachments are off, connected drawings stay permanently locked at this exact distance while still rotating and scaling from their bone pivots.</p>
+          <p className="toonse-empty">
+            When detachments are off, connected drawings stay permanently locked at this exact
+            distance while still rotating and scaling from their bone pivots.
+          </p>
         </div>
       ) : group ? (
         <div className="toonse-properties">
@@ -161,11 +236,43 @@ export function RightPanel({ isOpen }: { isOpen: boolean }) {
             <span>{group.memberIds.length} drawings</span>
             <span>{group.boneIds.length} bones</span>
           </div>
-          <Slider label="Group X" value={group.transform.x} min={-1000} max={1000} onChange={(value) => engine.updateGroupTransform("x", value)} />
-          <Slider label="Group Y" value={group.transform.y} min={-1000} max={1000} onChange={(value) => engine.updateGroupTransform("y", value)} />
-          <Slider label="Group Rotate" value={group.transform.rotation} min={-360} max={360} onChange={(value) => engine.updateGroupTransform("rotation", value)} />
-          <Slider label="Group Scale X" value={group.transform.scaleX} min={-5} max={5} step={0.01} onChange={(value) => engine.updateGroupTransform("scaleX", value)} />
-          <Slider label="Group Scale Y" value={group.transform.scaleY} min={-5} max={5} step={0.01} onChange={(value) => engine.updateGroupTransform("scaleY", value)} />
+          <Slider
+            label="Group X"
+            value={group.transform.x}
+            min={-1000}
+            max={1000}
+            onChange={(value) => engine.updateGroupTransform("x", value)}
+          />
+          <Slider
+            label="Group Y"
+            value={group.transform.y}
+            min={-1000}
+            max={1000}
+            onChange={(value) => engine.updateGroupTransform("y", value)}
+          />
+          <Slider
+            label="Group Rotate"
+            value={group.transform.rotation}
+            min={-360}
+            max={360}
+            onChange={(value) => engine.updateGroupTransform("rotation", value)}
+          />
+          <Slider
+            label="Group Scale X"
+            value={group.transform.scaleX}
+            min={-5}
+            max={5}
+            step={0.01}
+            onChange={(value) => engine.updateGroupTransform("scaleX", value)}
+          />
+          <Slider
+            label="Group Scale Y"
+            value={group.transform.scaleY}
+            min={-5}
+            max={5}
+            step={0.01}
+            onChange={(value) => engine.updateGroupTransform("scaleY", value)}
+          />
           <div className="toonse-boneList">
             <strong>Members</strong>
             {group.memberIds.map((id) => (
@@ -183,19 +290,41 @@ export function RightPanel({ isOpen }: { isOpen: boolean }) {
           </div>
           <label className="toonse-colorInput">
             Bone Color
-            <input type="color" value={engine.boneColor} onChange={(event) => engine.setBoneColor(event.target.value)} />
+            <input
+              type="color"
+              value={engine.boneColor}
+              onChange={(event) => engine.setBoneColor(event.target.value)}
+            />
           </label>
-          <Slider label="Bone Thickness" value={engine.boneThickness} min={1} max={14} onChange={(value) => engine.setBoneThickness(value)} />
+          <Slider
+            label="Bone Thickness"
+            value={engine.boneThickness}
+            min={1}
+            max={14}
+            onChange={(value) => engine.setBoneThickness(value)}
+          />
           <label className="toonse-checkRow">
-            <input type="checkbox" checked={engine.showBones} onChange={(event) => engine.setShowBones(event.target.checked)} />
+            <input
+              type="checkbox"
+              checked={engine.showBones}
+              onChange={(event) => engine.setShowBones(event.target.checked)}
+            />
             Show bones
           </label>
           <label className="toonse-checkRow">
-            <input type="checkbox" checked={engine.autoGroupBones} onChange={(event) => engine.setAutoGroupBones(event.target.checked)} />
+            <input
+              type="checkbox"
+              checked={engine.autoGroupBones}
+              onChange={(event) => engine.setAutoGroupBones(event.target.checked)}
+            />
             Auto-group
           </label>
           <label className="toonse-checkRow">
-            <input type="checkbox" checked={engine.defaultAllowDetach} onChange={(event) => engine.setDefaultAllowDetach(event.target.checked)} />
+            <input
+              type="checkbox"
+              checked={engine.defaultAllowDetach}
+              onChange={(event) => engine.setDefaultAllowDetach(event.target.checked)}
+            />
             Allow detachments
           </label>
         </div>
@@ -213,22 +342,118 @@ export function RightPanel({ isOpen }: { isOpen: boolean }) {
           </label>
 
           <div className="toonse-grid2">
-            <NumberField label="X" value={transform.x} onChange={(value) => engine.updateTransform("x", value)} />
-            <NumberField label="Y" value={transform.y} onChange={(value) => engine.updateTransform("y", value)} />
-            <NumberField label="Width" value={bounds.width * transform.scaleX} onChange={(value) => engine.setVisualSize("width", value)} />
-            <NumberField label="Height" value={bounds.height * transform.scaleY} onChange={(value) => engine.setVisualSize("height", value)} />
+            <NumberField
+              label="X"
+              value={transform.x}
+              onChange={(value) => engine.updateTransform("x", value)}
+            />
+            <NumberField
+              label="Y"
+              value={transform.y}
+              onChange={(value) => engine.updateTransform("y", value)}
+            />
+            <NumberField
+              label="Width"
+              value={bounds.width * transform.scaleX}
+              onChange={(value) => engine.setVisualSize("width", value)}
+            />
+            <NumberField
+              label="Height"
+              value={bounds.height * transform.scaleY}
+              onChange={(value) => engine.setVisualSize("height", value)}
+            />
           </div>
 
-          <Slider label="Rotate" value={transform.rotation} min={-360} max={360} onChange={(value) => engine.updateTransform("rotation", value)} />
-          <Slider label="Scale X" value={transform.scaleX} min={-5} max={5} step={0.01} onChange={(value) => engine.updateTransform("scaleX", value)} />
-          <Slider label="Scale Y" value={transform.scaleY} min={-5} max={5} step={0.01} onChange={(value) => engine.updateTransform("scaleY", value)} />
-          <Slider label="Skew X" value={transform.skewX} min={-75} max={75} onChange={(value) => engine.updateTransform("skewX", value)} />
-          <Slider label="Skew Y" value={transform.skewY} min={-75} max={75} onChange={(value) => engine.updateTransform("skewY", value)} />
-          <Slider label="3D Flip X" value={transform.flipX} min={-180} max={180} onChange={(value) => engine.updateTransform("flipX", value)} />
-          <Slider label="3D Flip Y" value={transform.flipY} min={-180} max={180} onChange={(value) => engine.updateTransform("flipY", value)} />
-          <Slider label="Perspective X" value={transform.perspectiveX} min={-1.8} max={1.8} step={0.01} onChange={(value) => engine.updateTransform("perspectiveX", value)} />
-          <Slider label="Perspective Y" value={transform.perspectiveY} min={-1.8} max={1.8} step={0.01} onChange={(value) => engine.updateTransform("perspectiveY", value)} />
-          <Slider label="Z Index" value={obj.zIndex} min={-50} max={200} onChange={(value) => engine.setZIndex(obj.id, value)} />
+          <Slider
+            label="Rotate"
+            value={transform.rotation}
+            min={-360}
+            max={360}
+            onChange={(value) => engine.updateTransform("rotation", value)}
+          />
+          <Slider
+            label="Scale X"
+            value={transform.scaleX}
+            min={-5}
+            max={5}
+            step={0.01}
+            onChange={(value) => engine.updateTransform("scaleX", value)}
+          />
+          <Slider
+            label="Scale Y"
+            value={transform.scaleY}
+            min={-5}
+            max={5}
+            step={0.01}
+            onChange={(value) => engine.updateTransform("scaleY", value)}
+          />
+          <Slider
+            label="Skew X"
+            value={transform.skewX}
+            min={-75}
+            max={75}
+            onChange={(value) => engine.updateTransform("skewX", value)}
+          />
+          <Slider
+            label="Skew Y"
+            value={transform.skewY}
+            min={-75}
+            max={75}
+            onChange={(value) => engine.updateTransform("skewY", value)}
+          />
+          <Slider
+            label="3D Flip X"
+            value={transform.flipX}
+            min={-180}
+            max={180}
+            onChange={(value) => engine.updateTransform("flipX", value)}
+          />
+          <Slider
+            label="3D Flip Y"
+            value={transform.flipY}
+            min={-180}
+            max={180}
+            onChange={(value) => engine.updateTransform("flipY", value)}
+          />
+          <Slider
+            label="Perspective X"
+            value={transform.perspectiveX}
+            min={-1.8}
+            max={1.8}
+            step={0.01}
+            onChange={(value) => engine.updateTransform("perspectiveX", value)}
+          />
+          <Slider
+            label="Perspective Y"
+            value={transform.perspectiveY}
+            min={-1.8}
+            max={1.8}
+            step={0.01}
+            onChange={(value) => engine.updateTransform("perspectiveY", value)}
+          />
+          <Slider
+            label="Z Index"
+            value={obj.zIndex}
+            min={-50}
+            max={200}
+            onChange={(value) => engine.setZIndex(obj.id, value)}
+          />
+          <Slider
+            label="Opacity"
+            value={obj.opacity ?? 1}
+            min={0}
+            max={1}
+            step={0.01}
+            onChange={(value) => engine.setObjectOpacity(obj.id, value)}
+          />
+          <Slider
+            label="Blur (Depth)"
+            value={obj.blur ?? 0}
+            min={0}
+            max={20}
+            step={0.1}
+            onChange={(value) => engine.setObjectBlur(obj.id, value)}
+          />
 
           <div className="toonse-rowButtons">
             <button type="button" onClick={() => engine.bringForward(obj.id)}>
@@ -243,8 +468,14 @@ export function RightPanel({ isOpen }: { isOpen: boolean }) {
             <strong>Bones</strong>
             {engine.getConnectedBones(obj.id).length ? (
               engine.getConnectedBones(obj.id).map((bone) => (
-                <button key={bone.id} type="button" className="toonse-boneLink" onClick={() => engine.selectBone(bone.id)}>
-                  {bone.name} · {Math.round(bone.lockedDistance)}px {bone.allowDetach ? "detachable" : "locked"}
+                <button
+                  key={bone.id}
+                  type="button"
+                  className="toonse-boneLink"
+                  onClick={() => engine.selectBone(bone.id)}
+                >
+                  {bone.name} · {Math.round(bone.lockedDistance)}px{" "}
+                  {bone.allowDetach ? "detachable" : "locked"}
                 </button>
               ))
             ) : (
@@ -253,7 +484,9 @@ export function RightPanel({ isOpen }: { isOpen: boolean }) {
           </div>
         </div>
       ) : (
-        <p className="toonse-empty">Select a drawing to edit transforms, z-index, fill, perspective, and rigging.</p>
+        <p className="toonse-empty">
+          Select a drawing to edit transforms, z-index, fill, perspective, and rigging.
+        </p>
       )}
     </aside>
   );
